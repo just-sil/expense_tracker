@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 
-import 'database/database_provider.dart';
-import 'database/database.dart';
+import 'services/api_service.dart';
 import 'services/ollama_service.dart';
 
-final database = createDatabase();
+final api = ApiService();
 final ollama = OllamaService();
 
 void main() {
@@ -18,7 +17,7 @@ class ExpenseTrackerApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Offline Expense Tracker',
+      title: 'Expense Tracker',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.green,
@@ -34,8 +33,7 @@ class ExpenseHomePage extends StatefulWidget {
   const ExpenseHomePage({super.key});
 
   @override
-  State<ExpenseHomePage> createState() =>
-      _ExpenseHomePageState();
+  State<ExpenseHomePage> createState() => _ExpenseHomePageState();
 }
 
 class _ExpenseHomePageState extends State<ExpenseHomePage> {
@@ -48,6 +46,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
 
   bool analyzing = false;
   bool saving = false;
+  bool loading = true;
 
   @override
   void initState() {
@@ -55,12 +54,26 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
     loadExpenses();
   }
 
+  // Load expenses from PostgreSQL through Flask
   Future<void> loadExpenses() async {
-    final data = await database.getAllExpenses();
+    try {
+      final data = await api.getExpenses();
 
-    setState(() {
-      expenses = data.reversed.toList();
-    });
+      if (!mounted) return;
+
+      setState(() {
+        expenses = data;
+        loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        loading = false;
+      });
+
+      showError(e.toString());
+    }
   }
 
   Future<void> analyzeExpense() async {
@@ -76,18 +89,23 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
     try {
       final expense = await ollama.analyzeExpense(message);
 
+      if (!mounted) return;
+
       setState(() {
         pendingExpense = expense;
       });
     } catch (e) {
       showError(e.toString());
     } finally {
-      setState(() {
-        analyzing = false;
-      });
+      if (mounted) {
+        setState(() {
+          analyzing = false;
+        });
+      }
     }
   }
 
+  // Save expense to PostgreSQL through Flask
   Future<void> saveExpense() async {
     final expense = pendingExpense;
 
@@ -98,7 +116,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
     });
 
     try {
-      await database.addExpense(
+      await api.addExpense(
         amount: expense.amount,
         category: expense.category,
         description: expense.description,
@@ -107,25 +125,30 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
 
       messageController.clear();
 
+      if (!mounted) return;
+
       setState(() {
         pendingExpense = null;
       });
 
+      // Reload from PostgreSQL
       await loadExpenses();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Expense saved'),
+            content: Text('Expense saved to server'),
           ),
         );
       }
     } catch (e) {
       showError(e.toString());
     } finally {
-      setState(() {
-        saving = false;
-      });
+      if (mounted) {
+        setState(() {
+          saving = false;
+        });
+      }
     }
   }
 
@@ -150,13 +173,11 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
           ),
         ),
       ),
-
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(
             maxWidth: 850,
           ),
-
           child: ListView(
             padding: const EdgeInsets.all(24),
             children: [
@@ -218,7 +239,8 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
             ),
 
             Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+              crossAxisAlignment:
+                  CrossAxisAlignment.end,
               children: [
                 const Text(
                   'Transactions',
@@ -455,7 +477,15 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
 
         const SizedBox(height: 12),
 
-        if (expenses.isEmpty)
+        if (loading)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(),
+            ),
+          )
+
+        else if (expenses.isEmpty)
           const Card(
             child: Padding(
               padding: EdgeInsets.all(24),
@@ -468,38 +498,40 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                 ),
               ),
             ),
-          ),
+          )
 
-        ...expenses.map(
-          (expense) => Card(
-            child: ListTile(
-              leading: CircleAvatar(
-                child: Icon(
-                  getCategoryIcon(
-                    expense.category,
+        else
+          ...expenses.map(
+            (expense) => Card(
+              child: ListTile(
+                leading: CircleAvatar(
+                  child: Icon(
+                    getCategoryIcon(
+                      expense.category,
+                    ),
                   ),
                 ),
-              ),
 
-              title: Text(
-                expense.description ??
-                    expense.category,
-              ),
+                title: Text(
+                  expense.description.isNotEmpty
+                      ? expense.description
+                      : expense.category,
+                ),
 
-              subtitle: Text(
-                '${expense.category} • ${expense.date}',
-              ),
+                subtitle: Text(
+                  '${expense.category} • ${expense.date}',
+                ),
 
-              trailing: Text(
-                '₹${expense.amount.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                trailing: Text(
+                  '₹${expense.amount.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
                 ),
               ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -535,7 +567,6 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
   @override
   void dispose() {
     messageController.dispose();
-    database.close();
 
     super.dispose();
   }

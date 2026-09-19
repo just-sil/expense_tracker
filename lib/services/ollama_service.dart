@@ -17,7 +17,7 @@ class ParsedExpense {
 
 class OllamaService {
   static const String apiUrl =
-      'http://localhost:11434/api/chat';
+      'http://192.168.68.121:11434/api/chat';
 
   Future<ParsedExpense> analyzeExpense(String message) async {
     final now = DateTime.now();
