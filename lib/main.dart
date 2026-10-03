@@ -1,295 +1,78 @@
 import 'package:flutter/material.dart';
 
-import 'services/api_service.dart';
-import 'services/ollama_service.dart';
-
-final api = ApiService();
-final ollama = OllamaService();
+import 'database/local_database.dart';
 
 void main() {
-  runApp(const ExpenseTrackerApp());
+  runApp(const ExpenseApp());
 }
 
-class ExpenseTrackerApp extends StatelessWidget {
-  const ExpenseTrackerApp({super.key});
+class ExpenseApp extends StatelessWidget {
+  const ExpenseApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Expense Tracker',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.green,
-        ),
-        useMaterial3: true,
-      ),
-      home: const ExpenseHomePage(),
+      home: const TestPage(),
     );
   }
 }
 
-class ExpenseHomePage extends StatefulWidget {
-  const ExpenseHomePage({super.key});
+class TestPage extends StatefulWidget {
+  const TestPage({super.key});
 
   @override
-  State<ExpenseHomePage> createState() => _ExpenseHomePageState();
+  State<TestPage> createState() => _TestPageState();
 }
 
-class _ExpenseHomePageState extends State<ExpenseHomePage> {
-  final TextEditingController messageController =
-      TextEditingController();
+class _TestPageState extends State<TestPage> {
+  final controller = TextEditingController();
 
-  ParsedExpense? pendingExpense;
-
-  List<Expense> expenses = [];
-
-  bool analyzing = false;
-  bool saving = false;
-  bool loading = true;
+  List<Map<String, dynamic>> logs = [];
 
   @override
   void initState() {
     super.initState();
-    loadExpenses();
+    loadLogs();
   }
 
-  // Load expenses from PostgreSQL through Flask
-  Future<void> loadExpenses() async {
-    try {
-      final data = await api.getExpenses();
+  Future<void> loadLogs() async {
+    final data =
+        await LocalDatabase.instance.getExpenseLogs();
 
-      if (!mounted) return;
-
-      setState(() {
-        expenses = data;
-        loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        loading = false;
-      });
-
-      showError(e.toString());
-    }
-  }
-
-  Future<void> analyzeExpense() async {
-    final message = messageController.text.trim();
-
-    if (message.isEmpty) return;
-
-    setState(() {
-      analyzing = true;
-      pendingExpense = null;
-    });
-
-    try {
-      final expense = await ollama.analyzeExpense(message);
-
-      if (!mounted) return;
-
-      setState(() {
-        pendingExpense = expense;
-      });
-    } catch (e) {
-      showError(e.toString());
-    } finally {
-      if (mounted) {
-        setState(() {
-          analyzing = false;
-        });
-      }
-    }
-  }
-
-  // Save expense to PostgreSQL through Flask
-  Future<void> saveExpense() async {
-    final expense = pendingExpense;
-
-    if (expense == null) return;
-
-    setState(() {
-      saving = true;
-    });
-
-    try {
-      await api.addExpense(
-        amount: expense.amount,
-        category: expense.category,
-        description: expense.description,
-        date: expense.date,
-      );
-
-      messageController.clear();
-
-      if (!mounted) return;
-
-      setState(() {
-        pendingExpense = null;
-      });
-
-      // Reload from PostgreSQL
-      await loadExpenses();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Expense saved to server'),
-          ),
-        );
-      }
-    } catch (e) {
-      showError(e.toString());
-    } finally {
-      if (mounted) {
-        setState(() {
-          saving = false;
-        });
-      }
-    }
-  }
-
-  void showError(String message) {
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-      ),
-    );
+    setState(() {
+      logs = data;
+    });
+  }
+
+  Future<void> save() async {
+    final text = controller.text.trim();
+
+    if (text.isEmpty) return;
+
+    await LocalDatabase.instance.addExpenseLog(text);
+
+    controller.clear();
+
+    await loadLogs();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Expense Tracker',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        title: const Text('Expense Tracker'),
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: 850,
-          ),
-          child: ListView(
-            padding: const EdgeInsets.all(24),
-            children: [
-              buildSummary(),
-
-              const SizedBox(height: 24),
-
-              buildInput(),
-
-              const SizedBox(height: 20),
-
-              if (pendingExpense != null)
-                buildDetectedExpense(),
-
-              const SizedBox(height: 30),
-
-              buildRecentExpenses(),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget buildSummary() {
-    final total = expenses.fold<double>(
-      0,
-      (sum, expense) => sum + expense.amount,
-    );
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Total recorded',
-                    style: TextStyle(
-                      color: Colors.grey,
-                    ),
-                  ),
-
-                  const SizedBox(height: 6),
-
-                  Text(
-                    '₹${total.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      fontSize: 30,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.end,
-              children: [
-                const Text(
-                  'Transactions',
-                  style: TextStyle(
-                    color: Colors.grey,
-                  ),
-                ),
-
-                const SizedBox(height: 6),
-
-                Text(
-                  '${expenses.length}',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget buildInput() {
-    return Card(
-      child: Padding(
+      body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Add an expense',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
             TextField(
-              controller: messageController,
-              maxLines: 3,
+              controller: controller,
               decoration: const InputDecoration(
-                hintText:
-                    'Example: Spent ₹177 on food yesterday',
+                hintText: 'What did you spend?',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -298,130 +81,29 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
 
             SizedBox(
               width: double.infinity,
-              child: FilledButton.icon(
-                onPressed:
-                    analyzing ? null : analyzeExpense,
-                icon: analyzing
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child:
-                            CircularProgressIndicator(
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : const Icon(Icons.auto_awesome),
-                label: Text(
-                  analyzing
-                      ? 'Analyzing...'
-                      : 'Analyze with Qwen',
-                ),
+              child: FilledButton(
+                onPressed: save,
+                child: const Text('Save'),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget buildDetectedExpense() {
-    final expense = pendingExpense!;
-
-    return Card(
-      color: Theme.of(context)
-          .colorScheme
-          .surfaceContainerHighest,
-
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-
-        child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
-
-          children: [
-            Row(
-              children: [
-                const Icon(
-                  Icons.auto_awesome,
-                ),
-
-                const SizedBox(width: 8),
-
-                const Text(
-                  'Detected Expense',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
             ),
 
             const SizedBox(height: 20),
 
-            Text(
-              '₹${expense.amount.toStringAsFixed(2)}',
-              style: const TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
+            Expanded(
+              child: ListView.builder(
+                itemCount: logs.length,
+                itemBuilder: (context, index) {
+                  final log = logs[index];
+
+                  return ListTile(
+                    title: Text(log['raw_text']),
+                    subtitle: Text(
+                      '${log['sync_status']} • '
+                      '${log['created_at']}',
+                    ),
+                  );
+                },
               ),
-            ),
-
-            const SizedBox(height: 12),
-
-            buildDetail(
-              Icons.category,
-              'Category',
-              expense.category,
-            ),
-
-            buildDetail(
-              Icons.description,
-              'Description',
-              expense.description,
-            ),
-
-            buildDetail(
-              Icons.calendar_today,
-              'Date',
-              expense.date,
-            ),
-
-            const SizedBox(height: 16),
-
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () {
-                      setState(() {
-                        pendingExpense = null;
-                      });
-                    },
-                    child: const Text('Discard'),
-                  ),
-                ),
-
-                const SizedBox(width: 12),
-
-                Expanded(
-                  child: FilledButton(
-                    onPressed:
-                        saving ? null : saveExpense,
-                    child: saving
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child:
-                                CircularProgressIndicator(
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : const Text('Save'),
-                  ),
-                ),
-              ],
             ),
           ],
         ),
@@ -429,145 +111,9 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
     );
   }
 
-  Widget buildDetail(
-    IconData icon,
-    String title,
-    String value,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.only(
-        bottom: 10,
-      ),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: 20,
-          ),
-
-          const SizedBox(width: 10),
-
-          Text(
-            '$title: ',
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-
-          Expanded(
-            child: Text(value),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget buildRecentExpenses() {
-    return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Recent Expenses',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        if (loading)
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: CircularProgressIndicator(),
-            ),
-          )
-
-        else if (expenses.isEmpty)
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(
-                child: Text(
-                  'No expenses yet',
-                  style: TextStyle(
-                    color: Colors.grey,
-                  ),
-                ),
-              ),
-            ),
-          )
-
-        else
-          ...expenses.map(
-            (expense) => Card(
-              child: ListTile(
-                leading: CircleAvatar(
-                  child: Icon(
-                    getCategoryIcon(
-                      expense.category,
-                    ),
-                  ),
-                ),
-
-                title: Text(
-                  expense.description.isNotEmpty
-                      ? expense.description
-                      : expense.category,
-                ),
-
-                subtitle: Text(
-                  '${expense.category} • ${expense.date}',
-                ),
-
-                trailing: Text(
-                  '₹${expense.amount.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  IconData getCategoryIcon(String category) {
-    switch (category.toLowerCase()) {
-      case 'food':
-        return Icons.restaurant;
-
-      case 'transport':
-        return Icons.directions_bus;
-
-      case 'shopping':
-        return Icons.shopping_bag;
-
-      case 'bills':
-        return Icons.receipt_long;
-
-      case 'entertainment':
-        return Icons.movie;
-
-      case 'education':
-        return Icons.school;
-
-      case 'health':
-        return Icons.health_and_safety;
-
-      default:
-        return Icons.payments;
-    }
-  }
-
   @override
   void dispose() {
-    messageController.dispose();
-
+    controller.dispose();
     super.dispose();
   }
 }
