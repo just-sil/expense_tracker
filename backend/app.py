@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 import requests
 import json
+import re
 
 
 # --------------------------------------------------
@@ -167,11 +168,18 @@ Return ONLY valid JSON.
 Required format:
 
 {{
-  "amount": 0,
-  "category": "Food",
-  "description": "string",
+  "amount": <number from the message>,
+  "category": "<one allowed category>",
+  "description": "<short description>",
   "date": "YYYY-MM-DD"
 }}
+
+Examples (created at 2026-01-10):
+
+"24 tea" -> {{"amount": 24, "category": "Food", "description": "Tea", "date": "2026-01-10"}}
+"tea 24" -> {{"amount": 24, "category": "Food", "description": "Tea", "date": "2026-01-10"}}
+"auto80" -> {{"amount": 80, "category": "Transport", "description": "Auto", "date": "2026-01-10"}}
+"spent 150 on lunch yesterday" -> {{"amount": 150, "category": "Food", "description": "Lunch", "date": "2026-01-09"}}
 
 Allowed categories:
 
@@ -187,6 +195,9 @@ Other
 Rules:
 
 - amount must be a number
+- amount is the number written in the message, whether it
+  comes before or after the item, with or without a space
+- Never return 0 for amount if the message contains a number
 - date must be YYYY-MM-DD
 - Resolve relative dates using the creation date
 - If category is unclear, use Other
@@ -240,6 +251,19 @@ Rules:
     json_content = content[start:end + 1]
 
     return json.loads(json_content)
+
+
+AMOUNT_PATTERN = re.compile(r"(\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
+
+
+def amount_from_text(text):
+
+    match = AMOUNT_PATTERN.search(text)
+
+    if not match:
+        return None
+
+    return float(match.group(0).replace(",", ""))
 
 
 # --------------------------------------------------
@@ -330,9 +354,22 @@ def sync_expense():
 
         except (ValueError, TypeError):
 
-            raise ValueError(
-                "Qwen returned an invalid amount"
-            )
+            amount = 0.0
+
+
+        # Safety net: if the model missed the amount,
+        # use the number written in the message.
+        if amount <= 0:
+
+            fallback = amount_from_text(raw_text)
+
+            if fallback is None:
+
+                raise ValueError(
+                    "Could not find an amount in the message"
+                )
+
+            amount = fallback
 
 
         # ------------------------------------------
