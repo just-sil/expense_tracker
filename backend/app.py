@@ -291,6 +291,10 @@ def sync_expense():
 
     created_at = data.get("created_at")
 
+    # Set when the entry was synced before and has since been
+    # rewritten on the phone: update that row instead of adding one.
+    server_id = data.get("server_id")
+
 
     # ----------------------------------------------
     # Validate input
@@ -398,27 +402,50 @@ def sync_expense():
         # Save processed expense to PostgreSQL
         # ------------------------------------------
 
+        values = (
+            amount,
+            category,
+            parsed["description"],
+            parsed["date"],
+        )
+
         with get_db() as conn:
 
             with conn.cursor() as cur:
 
-                cur.execute(
-                    """
-                    INSERT INTO expenses
-                    (amount, category, description, date)
-                    VALUES (%s, %s, %s, %s)
-                    RETURNING id
-                    """,
+                row = None
 
-                    (
-                        amount,
-                        category,
-                        parsed["description"],
-                        parsed["date"],
-                    ),
-                )
+                if server_id is not None:
 
-                expense_id = cur.fetchone()[0]
+                    cur.execute(
+                        """
+                        UPDATE expenses
+                        SET amount = %s, category = %s,
+                            description = %s, date = %s
+                        WHERE id = %s
+                        RETURNING id
+                        """,
+                        (*values, server_id),
+                    )
+
+                    row = cur.fetchone()
+
+                # New entry, or the old row no longer exists.
+                if row is None:
+
+                    cur.execute(
+                        """
+                        INSERT INTO expenses
+                        (amount, category, description, date)
+                        VALUES (%s, %s, %s, %s)
+                        RETURNING id
+                        """,
+                        values,
+                    )
+
+                    row = cur.fetchone()
+
+                expense_id = row[0]
 
             conn.commit()
 

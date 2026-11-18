@@ -131,6 +131,11 @@ class SyncService {
 
         'created_at':
             expense['created_at'],
+
+        // Present for rewritten entries, so the server
+        // updates the existing row instead of adding one.
+        if (expense['server_id'] != null)
+          'server_id': expense['server_id'],
       }),
     );
 

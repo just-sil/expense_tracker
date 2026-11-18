@@ -288,6 +288,34 @@ class LocalDatabase {
   }
 
   // --------------------------------------------------
+  // REWRITE
+  // --------------------------------------------------
+
+  /// Replaces an entry's text and queues it to be parsed
+  /// again on the next sync. server_id is kept so the
+  /// server updates its existing row.
+  Future<void> rewriteExpense(
+    int id,
+    String rawText,
+  ) async {
+    final db = await database;
+
+    await db.update(
+      'expense_logs',
+      {
+        'raw_text': rawText,
+        'sync_status': 'pending',
+        'amount': null,
+        'category': null,
+        'expense_date': null,
+        'error': null,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // --------------------------------------------------
   // DELETE
   // --------------------------------------------------
 

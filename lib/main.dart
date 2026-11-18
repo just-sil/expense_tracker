@@ -383,6 +383,85 @@ class _ExpenseHomePageState
   }
 
   // --------------------------------------------------
+  // REWRITE EXPENSE
+  // --------------------------------------------------
+
+  Future<void> rewriteExpense(
+    Map<String, dynamic> expense,
+  ) async {
+    final controller = TextEditingController(
+      text: expense['raw_text'] as String? ?? '',
+    );
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rewrite expense'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 2,
+          maxLines: 6,
+          decoration: const InputDecoration(
+            hintText: 'e.g. 60 lunch with Ali',
+            helperText:
+                'It will be read again on the next sync.',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              context,
+              controller.text.trim(),
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    // Not disposed here: the dialog's closing animation
+    // still renders the TextField. It is garbage-collected.
+
+    if (result == null) return; // cancelled
+
+    if (!mounted) return;
+
+    if (result.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Text can\'t be empty'),
+        ),
+      );
+      return;
+    }
+
+    if (result == expense['raw_text']) return;
+
+    await LocalDatabase.instance.rewriteExpense(
+      expense['id'] as int,
+      result,
+    );
+
+    await loadLogs();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Expense updated. Sync to process it again.',
+        ),
+      ),
+    );
+  }
+
+  // --------------------------------------------------
   // DELETE EXPENSE
   // --------------------------------------------------
 
@@ -938,6 +1017,13 @@ class _ExpenseHomePageState
                   PopupMenuButton<String>(
                 itemBuilder: (context) {
                   return [
+                    const PopupMenuItem(
+                      value: 'rewrite',
+                      child: Text(
+                        'Rewrite',
+                      ),
+                    ),
+
                     if (screenshotPath !=
                         null)
                       const PopupMenuItem(
@@ -957,6 +1043,13 @@ class _ExpenseHomePageState
                 },
 
                 onSelected: (value) {
+                  if (value ==
+                      'rewrite') {
+                    rewriteExpense(
+                      expense,
+                    );
+                  }
+
                   if (value ==
                       'image') {
                     showScreenshot(
