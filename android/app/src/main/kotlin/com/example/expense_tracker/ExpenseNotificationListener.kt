@@ -65,16 +65,41 @@ class ExpenseNotificationListener : NotificationListenerService() {
             RegexOption.IGNORE_CASE,
         )
 
+        // Money coming in. Used to decide direction when a message
+        // mentions both sides ("debited from your a/c ... credited to X").
+        private val creditPattern = Regex(
+            """\b(credited|credit of|received|deposited|added to)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+
+        // Phrases that only ever describe money you received, e.g.
+        // "Mridhul paid you ₹1.00", "You have received Rs 500",
+        // "Rs 500 credited to your a/c". These always win.
+        private val incomingPattern = Regex(
+            """\b(paid you|sent you|transferred to you|you('ve| have)? received|received (rs\.?|inr|₹)|received from|credited (to|in|into) your|has been credited|is credited|money received|payment received)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+
+        // Not a completed payment at all.
         private val ignorePattern = Regex(
-            """\b(otp|one[- ]time password|credited|received|refund(ed)?|cashback|request(ed)? (money|₹)|collect request|will be debited|due on|due date|bill generated|statement|failed|declined|reversed|offer|win|get up to)\b""",
+            """\b(otp|one[- ]time password|refund(ed)?|cashback|request(ed)? (money|₹)|collect request|requested|will be debited|due on|due date|bill generated|statement|failed|declined|reversed|offer|win|get up to)\b""",
             RegexOption.IGNORE_CASE,
         )
 
         fun looksLikeExpense(text: String): Boolean {
             if (text.length < 8) return false
             if (!amountPattern.containsMatchIn(text)) return false
-            if (!debitPattern.containsMatchIn(text)) return false
             if (ignorePattern.containsMatchIn(text)) return false
+            if (incomingPattern.containsMatchIn(text)) return false
+
+            val debit = debitPattern.find(text) ?: return false
+            val credit = creditPattern.find(text)
+
+            // Both sides mentioned: the first one describes your account.
+            if (credit != null && credit.range.first < debit.range.first) {
+                return false
+            }
+
             return true
         }
 
