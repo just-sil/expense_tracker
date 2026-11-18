@@ -12,6 +12,26 @@ Type `24 tea`, `petrol 60` or `120 mandi yesterday` on your phone. The app saves
   <img src="docs/images/expenses-tab.png" alt="Expenses tab: add an expense in plain text, attach a screenshot, sync with the laptop" width="320">
 </p>
 
+## Video tour
+
+<p align="center">
+  <a href="docs/video/chillara-tour.mp4">
+    <img src="docs/images/tour.gif" alt="Preview of the app tour: adding an expense and viewing the Summary tab" width="720">
+  </a>
+</p>
+
+<p align="center"><b><a href="docs/video/chillara-tour.mp4">▶ Watch the full 78-second tour</a></b></p>
+
+The tour walks through the mobile app in five steps:
+
+1. **Add an expense** — type it in plain words and save it, even offline
+2. **Sync with your laptop** — the local AI fills in amount, category and date
+3. **Change the laptop address** — long-press **Sync**
+4. **See your spending** — daily and weekly totals, categories and history
+5. **Set a daily limit** — see how much you can spend today
+
+*Recorded with sample data.*
+
 ---
 
 ## Features
