@@ -1,6 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'database/local_database.dart';
+import 'screens/summary_screen.dart';
+import 'services/sync_service.dart';
 
 void main() {
   runApp(const ExpenseApp());
@@ -13,28 +19,54 @@ class ExpenseApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: const TestPage(),
+      title: 'Expense Tracker',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.green,
+        ),
+        useMaterial3: true,
+      ),
+      home: const ExpenseHomePage(),
     );
   }
 }
 
-class TestPage extends StatefulWidget {
-  const TestPage({super.key});
+class ExpenseHomePage extends StatefulWidget {
+  const ExpenseHomePage({super.key});
 
   @override
-  State<TestPage> createState() => _TestPageState();
+  State<ExpenseHomePage> createState() =>
+      _ExpenseHomePageState();
 }
 
-class _TestPageState extends State<TestPage> {
-  final controller = TextEditingController();
+class _ExpenseHomePageState
+    extends State<ExpenseHomePage> {
+  final TextEditingController textController =
+      TextEditingController();
+
+  final ImagePicker imagePicker = ImagePicker();
+
+  final SyncService syncService = SyncService();
 
   List<Map<String, dynamic>> logs = [];
+
+  String? selectedScreenshot;
+
+  bool loading = true;
+  bool saving = false;
+  bool syncing = false;
+
+  int currentTab = 0;
 
   @override
   void initState() {
     super.initState();
     loadLogs();
   }
+
+  // --------------------------------------------------
+  // LOAD LOCAL EXPENSES
+  // --------------------------------------------------
 
   Future<void> loadLogs() async {
     final data =
@@ -44,36 +76,392 @@ class _TestPageState extends State<TestPage> {
 
     setState(() {
       logs = data;
+      loading = false;
     });
   }
 
-  Future<void> save() async {
-    final text = controller.text.trim();
+  // --------------------------------------------------
+  // PICK SCREENSHOT
+  // --------------------------------------------------
 
-    if (text.isEmpty) return;
+  Future<void> pickScreenshot() async {
+    final image = await imagePicker.pickImage(
+      source: ImageSource.gallery,
+    );
 
-    await LocalDatabase.instance.addExpenseLog(text);
+    if (image == null) return;
 
-    controller.clear();
+    final directory =
+        await getApplicationDocumentsDirectory();
+
+    final screenshotsDirectory = Directory(
+      '${directory.path}/screenshots',
+    );
+
+    if (!await screenshotsDirectory.exists()) {
+      await screenshotsDirectory.create(
+        recursive: true,
+      );
+    }
+
+    final filename =
+        '${DateTime.now().millisecondsSinceEpoch}.jpg';
+
+    final savedFile = await File(image.path).copy(
+      '${screenshotsDirectory.path}/$filename',
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      selectedScreenshot = savedFile.path;
+    });
+  }
+
+  // --------------------------------------------------
+  // SAVE EXPENSE LOCALLY
+  // --------------------------------------------------
+
+  Future<void> saveExpense() async {
+    final text = textController.text.trim();
+
+    if (text.isEmpty && selectedScreenshot == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Enter an expense or add a screenshot',
+          ),
+        ),
+      );
+
+      return;
+    }
+
+    setState(() {
+      saving = true;
+    });
+
+    try {
+      await LocalDatabase.instance.addExpenseLog(
+        rawText: text,
+        screenshotPath: selectedScreenshot,
+      );
+
+      textController.clear();
+
+      if (!mounted) return;
+
+      setState(() {
+        selectedScreenshot = null;
+      });
+
+      await loadLogs();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Expense saved locally',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          saving = false;
+        });
+      }
+    }
+  }
+
+  // --------------------------------------------------
+  // SYNC WITH LAPTOP
+  // --------------------------------------------------
+
+  Future<void> syncExpenses() async {
+    if (syncing) return;
+
+    setState(() {
+      syncing = true;
+    });
+
+    try {
+      await syncService.syncPendingExpenses();
+
+      await loadLogs();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Sync completed',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Sync failed: $e',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          syncing = false;
+        });
+      }
+    }
+  }
+
+  // --------------------------------------------------
+  // DELETE EXPENSE
+  // --------------------------------------------------
+
+  Future<void> deleteExpense(
+    Map<String, dynamic> expense,
+  ) async {
+    final confirmed =
+        await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text(
+            'Delete expense?',
+          ),
+          content: const Text(
+            'This will permanently remove this '
+            'expense from your phone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(
+                  context,
+                  false,
+                );
+              },
+              child: const Text(
+                'Cancel',
+              ),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(
+                  context,
+                  true,
+                );
+              },
+              child: const Text(
+                'Delete',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    final id = expense['id'] as int;
+
+    final screenshotPath =
+        expense['screenshot_path'] as String?;
+
+    await LocalDatabase.instance.deleteExpense(
+      id,
+    );
+
+    // Delete screenshot from phone too.
+    if (screenshotPath != null) {
+      final file = File(
+        screenshotPath,
+      );
+
+      if (await file.exists()) {
+        await file.delete();
+      }
+    }
 
     await loadLogs();
   }
+
+  // --------------------------------------------------
+  // SHOW SCREENSHOT
+  // --------------------------------------------------
+
+  void showScreenshot(String path) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: const Text(
+              'Screenshot',
+            ),
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              child: Image.file(
+                File(path),
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --------------------------------------------------
+  // BUILD
+  // --------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Expense Tracker'),
+        title: const Text(
+          'Expense Tracker',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Sync with laptop',
+            onPressed:
+                syncing ? null : syncExpenses,
+            icon: syncing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child:
+                        CircularProgressIndicator(
+                      strokeWidth: 2,
+                    ),
+                  )
+                : const Icon(
+                    Icons.sync,
+                  ),
+          ),
+        ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
+
+      body: SafeArea(
+        child: IndexedStack(
+          index: currentTab,
           children: [
+            ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                buildInputCard(),
+
+                const SizedBox(height: 20),
+
+                buildSyncCard(),
+
+                const SizedBox(height: 24),
+
+                const Text(
+                  'Expense Log',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                buildExpenseList(),
+              ],
+            ),
+
+            SummaryScreen(logs: logs),
+          ],
+        ),
+      ),
+
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: currentTab,
+        onDestinationSelected: (index) {
+          setState(() {
+            currentTab = index;
+          });
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.receipt_long_outlined),
+            selectedIcon: Icon(Icons.receipt_long),
+            label: 'Expenses',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.bar_chart_outlined),
+            selectedIcon: Icon(Icons.bar_chart),
+            label: 'Summary',
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --------------------------------------------------
+  // INPUT CARD
+  // --------------------------------------------------
+
+  Widget buildInputCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+
+          children: [
+            const Text(
+              'Add an expense',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
             TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                hintText: 'What did you spend?',
-                border: OutlineInputBorder(),
+              controller: textController,
+              maxLines: 4,
+
+              decoration:
+                  const InputDecoration(
+                hintText:
+                    'Example: spent 25 on tea break',
+
+                border:
+                    OutlineInputBorder(),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            if (selectedScreenshot != null)
+              buildSelectedScreenshot(),
+
+            OutlinedButton.icon(
+              onPressed: pickScreenshot,
+
+              icon: const Icon(
+                Icons.image_outlined,
+              ),
+
+              label: const Text(
+                'Add Screenshot',
               ),
             ),
 
@@ -81,28 +469,29 @@ class _TestPageState extends State<TestPage> {
 
             SizedBox(
               width: double.infinity,
-              child: FilledButton(
-                onPressed: save,
-                child: const Text('Save'),
-              ),
-            ),
 
-            const SizedBox(height: 20),
+              child: FilledButton.icon(
+                onPressed:
+                    saving ? null : saveExpense,
 
-            Expanded(
-              child: ListView.builder(
-                itemCount: logs.length,
-                itemBuilder: (context, index) {
-                  final log = logs[index];
+                icon: saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child:
+                            CircularProgressIndicator(
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.save,
+                      ),
 
-                  return ListTile(
-                    title: Text(log['raw_text']),
-                    subtitle: Text(
-                      '${log['sync_status']} • '
-                      '${log['created_at']}',
-                    ),
-                  );
-                },
+                label: Text(
+                  saving
+                      ? 'Saving...'
+                      : 'Save Expense',
+                ),
               ),
             ),
           ],
@@ -111,9 +500,292 @@ class _TestPageState extends State<TestPage> {
     );
   }
 
+  // --------------------------------------------------
+  // SYNC CARD
+  // --------------------------------------------------
+
+  Widget buildSyncCard() {
+    final pendingCount = logs
+        .where(
+          (expense) =>
+              expense['sync_status'] == 'pending' ||
+              expense['sync_status'] == 'failed',
+        )
+        .length;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+
+        child: Row(
+          children: [
+            const Icon(
+              Icons.cloud_outlined,
+              size: 32,
+            ),
+
+            const SizedBox(width: 12),
+
+            Expanded(
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+
+                children: [
+                  const Text(
+                    'Laptop Sync',
+                    style: TextStyle(
+                      fontWeight:
+                          FontWeight.bold,
+                      fontSize: 17,
+                    ),
+                  ),
+
+                  const SizedBox(height: 4),
+
+                  Text(
+                    pendingCount == 0
+                        ? 'Everything is synced'
+                        : '$pendingCount expense(s) waiting to sync',
+                  ),
+                ],
+              ),
+            ),
+
+            FilledButton(
+              onPressed:
+                  syncing ? null : syncExpenses,
+
+              child: syncing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child:
+                          CircularProgressIndicator(
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text(
+                      'Sync',
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --------------------------------------------------
+  // SELECTED SCREENSHOT
+  // --------------------------------------------------
+
+  Widget buildSelectedScreenshot() {
+    return Padding(
+      padding:
+          const EdgeInsets.only(bottom: 12),
+
+      child: Stack(
+        children: [
+          ClipRRect(
+            borderRadius:
+                BorderRadius.circular(12),
+
+            child: Image.file(
+              File(selectedScreenshot!),
+
+              height: 160,
+              width: double.infinity,
+
+              fit: BoxFit.cover,
+            ),
+          ),
+
+          Positioned(
+            top: 8,
+            right: 8,
+
+            child: CircleAvatar(
+              child: IconButton(
+                icon: const Icon(
+                  Icons.close,
+                ),
+
+                onPressed: () {
+                  setState(() {
+                    selectedScreenshot =
+                        null;
+                  });
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --------------------------------------------------
+  // EXPENSE LIST
+  // --------------------------------------------------
+
+  Widget buildExpenseList() {
+    if (loading) {
+      return const Center(
+        child: Padding(
+          padding:
+              EdgeInsets.all(30),
+
+          child:
+              CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (logs.isEmpty) {
+      return const Card(
+        child: Padding(
+          padding:
+              EdgeInsets.all(30),
+
+          child: Center(
+            child: Text(
+              'No expenses yet',
+              style: TextStyle(
+                color: Colors.grey,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: logs.map(
+        (expense) {
+          final screenshotPath =
+              expense['screenshot_path']
+                  as String?;
+
+          final status =
+              expense['sync_status']
+                  as String;
+
+          final rawText =
+              expense['raw_text']
+                  as String;
+
+          return Card(
+            margin:
+                const EdgeInsets.only(
+              bottom: 10,
+            ),
+
+            child: ListTile(
+              leading: Icon(
+                screenshotPath != null
+                    ? Icons.image
+                    : Icons.receipt_long,
+              ),
+
+              title: Text(
+                rawText.isEmpty
+                    ? 'Screenshot expense'
+                    : rawText,
+              ),
+
+              subtitle: Row(
+                children: [
+                  statusIcon(status),
+
+                  const SizedBox(
+                    width: 5,
+                  ),
+
+                  Text(status),
+                ],
+              ),
+
+              trailing:
+                  PopupMenuButton<String>(
+                itemBuilder: (context) {
+                  return [
+                    if (screenshotPath !=
+                        null)
+                      const PopupMenuItem(
+                        value: 'image',
+                        child: Text(
+                          'View screenshot',
+                        ),
+                      ),
+
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Text(
+                        'Delete',
+                      ),
+                    ),
+                  ];
+                },
+
+                onSelected: (value) {
+                  if (value ==
+                      'image') {
+                    showScreenshot(
+                      screenshotPath!,
+                    );
+                  }
+
+                  if (value ==
+                      'delete') {
+                    deleteExpense(
+                      expense,
+                    );
+                  }
+                },
+              ),
+            ),
+          );
+        },
+      ).toList(),
+    );
+  }
+
+  // --------------------------------------------------
+  // STATUS ICON
+  // --------------------------------------------------
+
+  Widget statusIcon(String status) {
+    switch (status) {
+      case 'synced':
+        return const Icon(
+          Icons.cloud_done,
+          size: 18,
+        );
+
+      case 'failed':
+        return const Icon(
+          Icons.error_outline,
+          size: 18,
+        );
+
+      case 'processing':
+        return const Icon(
+          Icons.sync,
+          size: 18,
+        );
+
+      default:
+        return const Icon(
+          Icons.cloud_upload_outlined,
+          size: 18,
+        );
+    }
+  }
+
   @override
   void dispose() {
-    controller.dispose();
+    textController.dispose();
+
     super.dispose();
   }
 }

@@ -2,7 +2,8 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
 class LocalDatabase {
-  static final LocalDatabase instance = LocalDatabase._internal();
+  static final LocalDatabase instance =
+      LocalDatabase._internal();
 
   static Database? _database;
 
@@ -13,13 +14,15 @@ class LocalDatabase {
       return _database!;
     }
 
-    _database = await _initDatabase();
+    _database =
+        await _initDatabase();
 
     return _database!;
   }
 
   Future<Database> _initDatabase() async {
-    final databasePath = await getDatabasesPath();
+    final databasePath =
+        await getDatabasesPath();
 
     final path = join(
       databasePath,
@@ -28,87 +31,213 @@ class LocalDatabase {
 
     return openDatabase(
       path,
-      version: 1,
-      onCreate: (db, version) async {
+
+      version: 3,
+
+      onCreate:
+          (db, version) async {
         await db.execute('''
           CREATE TABLE expense_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             raw_text TEXT NOT NULL,
+            screenshot_path TEXT,
             created_at TEXT NOT NULL,
             sync_status TEXT NOT NULL DEFAULT 'pending',
             server_id INTEGER,
-            error TEXT
+            error TEXT,
+            amount REAL,
+            category TEXT,
+            expense_date TEXT
           )
         ''');
       },
+
+      onUpgrade:
+          (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE expense_logs '
+            'ADD COLUMN screenshot_path TEXT',
+          );
+        }
+
+        if (oldVersion < 3) {
+          await db.execute(
+            'ALTER TABLE expense_logs '
+            'ADD COLUMN amount REAL',
+          );
+          await db.execute(
+            'ALTER TABLE expense_logs '
+            'ADD COLUMN category TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE expense_logs '
+            'ADD COLUMN expense_date TEXT',
+          );
+        }
+      },
     );
   }
 
-  Future<int> addExpenseLog(String rawText) async {
-    final db = await database;
+  // --------------------------------------------------
+  // ADD
+  // --------------------------------------------------
+
+  Future<int> addExpenseLog({
+    required String rawText,
+    String? screenshotPath,
+  }) async {
+    final db =
+        await database;
 
     return db.insert(
       'expense_logs',
+
       {
         'raw_text': rawText,
-        'created_at': DateTime.now().toIso8601String(),
-        'sync_status': 'pending',
+        'screenshot_path':
+            screenshotPath,
+        'created_at':
+            DateTime.now()
+                .toIso8601String(),
+        'sync_status':
+            'pending',
       },
     );
   }
 
-  Future<List<Map<String, dynamic>>> getExpenseLogs() async {
-    final db = await database;
+  // --------------------------------------------------
+  // GET ALL
+  // --------------------------------------------------
+
+  Future<List<Map<String, dynamic>>>
+      getExpenseLogs() async {
+    final db =
+        await database;
 
     return db.query(
       'expense_logs',
-      orderBy: 'created_at DESC',
+      orderBy:
+          'created_at DESC',
     );
   }
 
-  Future<List<Map<String, dynamic>>> getPendingLogs() async {
-    final db = await database;
+  // --------------------------------------------------
+  // GET PENDING
+  // --------------------------------------------------
+
+  Future<List<Map<String, dynamic>>>
+      getPendingLogs() async {
+    final db =
+        await database;
 
     return db.query(
       'expense_logs',
-      where: 'sync_status = ?',
-      whereArgs: ['pending'],
-      orderBy: 'created_at ASC',
+
+      // Failed entries are retried on every sync.
+      where:
+          'sync_status IN (?, ?)',
+
+      whereArgs: [
+        'pending',
+        'failed',
+      ],
+
+      orderBy:
+          'created_at ASC',
     );
   }
+
+  // --------------------------------------------------
+  // MARK SYNCED
+  // --------------------------------------------------
 
   Future<void> markAsSynced(
     int id,
-    int serverId,
-  ) async {
-    final db = await database;
+    int serverId, {
+    double? amount,
+    String? category,
+    String? expenseDate,
+  }) async {
+    final db =
+        await database;
 
     await db.update(
       'expense_logs',
+
       {
-        'sync_status': 'synced',
-        'server_id': serverId,
-        'error': null,
+        'sync_status':
+            'synced',
+        'server_id':
+            serverId,
+        'error':
+            null,
+        'amount':
+            amount,
+        'category':
+            category,
+        'expense_date':
+            expenseDate,
       },
-      where: 'id = ?',
-      whereArgs: [id],
+
+      where:
+          'id = ?',
+
+      whereArgs: [
+        id,
+      ],
     );
   }
+
+  // --------------------------------------------------
+  // MARK FAILED
+  // --------------------------------------------------
 
   Future<void> markAsFailed(
     int id,
     String error,
   ) async {
-    final db = await database;
+    final db =
+        await database;
 
     await db.update(
       'expense_logs',
+
       {
-        'sync_status': 'failed',
-        'error': error,
+        'sync_status':
+            'failed',
+        'error':
+            error,
       },
-      where: 'id = ?',
-      whereArgs: [id],
+
+      where:
+          'id = ?',
+
+      whereArgs: [
+        id,
+      ],
+    );
+  }
+
+  // --------------------------------------------------
+  // DELETE
+  // --------------------------------------------------
+
+  Future<void> deleteExpense(
+    int id,
+  ) async {
+    final db =
+        await database;
+
+    await db.delete(
+      'expense_logs',
+
+      where:
+          'id = ?',
+
+      whereArgs: [
+        id,
+      ],
     );
   }
 }
