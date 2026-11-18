@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'database/local_database.dart';
 import 'screens/summary_screen.dart';
+import 'services/notification_service.dart';
 import 'services/sync_service.dart';
 
 void main() {
@@ -40,13 +41,19 @@ class ExpenseHomePage extends StatefulWidget {
 }
 
 class _ExpenseHomePageState
-    extends State<ExpenseHomePage> {
+    extends State<ExpenseHomePage>
+    with WidgetsBindingObserver {
   final TextEditingController textController =
       TextEditingController();
 
   final ImagePicker imagePicker = ImagePicker();
 
   final SyncService syncService = SyncService();
+
+  final NotificationService notificationService =
+      NotificationService();
+
+  bool notificationsEnabled = false;
 
   List<Map<String, dynamic>> logs = [];
 
@@ -61,7 +68,56 @@ class _ExpenseHomePageState
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     loadLogs();
+    importNotifications();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Pick up payments seen while the app was in the
+    // background, and re-check access after the user
+    // returns from the system settings screen.
+    if (state == AppLifecycleState.resumed) {
+      importNotifications();
+    }
+  }
+
+  // --------------------------------------------------
+  // IMPORT EXPENSES FROM NOTIFICATIONS
+  // --------------------------------------------------
+
+  Future<void> importNotifications() async {
+    if (!notificationService.isSupported) return;
+
+    try {
+      final enabled =
+          await notificationService.isEnabled();
+      final added =
+          await notificationService.importQueued();
+
+      if (!mounted) return;
+
+      setState(() {
+        notificationsEnabled = enabled;
+      });
+
+      if (added > 0) {
+        await loadLogs();
+
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Added $added expense(s) from notifications',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Notification import failed: $e');
+    }
   }
 
   // --------------------------------------------------
@@ -187,6 +243,7 @@ class _ExpenseHomePageState
     });
 
     try {
+      await importNotifications();
       await syncService.syncPendingExpenses();
 
       await loadLogs();
@@ -365,6 +422,12 @@ class _ExpenseHomePageState
                 const SizedBox(height: 20),
 
                 buildSyncCard(),
+
+                if (notificationService.isSupported &&
+                    !notificationsEnabled) ...[
+                  const SizedBox(height: 12),
+                  buildNotificationCard(),
+                ],
 
                 const SizedBox(height: 24),
 
@@ -576,6 +639,54 @@ class _ExpenseHomePageState
   }
 
   // --------------------------------------------------
+  // NOTIFICATION ACCESS CARD
+  // --------------------------------------------------
+
+  Widget buildNotificationCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.notifications_active_outlined,
+              size: 32,
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Auto-log from notifications',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 17,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Read payment alerts from bank and '
+                    'UPI apps. Nothing leaves your phone '
+                    'except to your laptop on sync.',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed:
+                  notificationService.openSettings,
+              child: const Text('Enable'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --------------------------------------------------
   // SELECTED SCREENSHOT
   // --------------------------------------------------
 
@@ -674,6 +785,10 @@ class _ExpenseHomePageState
               expense['raw_text']
                   as String;
 
+          final fromNotification =
+              expense['source'] ==
+                  'notification';
+
           return Card(
             margin:
                 const EdgeInsets.only(
@@ -684,7 +799,9 @@ class _ExpenseHomePageState
               leading: Icon(
                 screenshotPath != null
                     ? Icons.image
-                    : Icons.receipt_long,
+                    : fromNotification
+                        ? Icons.notifications_outlined
+                        : Icons.receipt_long,
               ),
 
               title: Text(
@@ -784,6 +901,7 @@ class _ExpenseHomePageState
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     textController.dispose();
 
     super.dispose();

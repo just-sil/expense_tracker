@@ -32,7 +32,7 @@ class LocalDatabase {
     return openDatabase(
       path,
 
-      version: 4,
+      version: 5,
 
       onCreate:
           (db, version) async {
@@ -47,7 +47,8 @@ class LocalDatabase {
             error TEXT,
             amount REAL,
             category TEXT,
-            expense_date TEXT
+            expense_date TEXT,
+            source TEXT NOT NULL DEFAULT 'manual'
           )
         ''');
 
@@ -80,6 +81,13 @@ class LocalDatabase {
 
         if (oldVersion < 4) {
           await _createSettingsTable(db);
+        }
+
+        if (oldVersion < 5) {
+          await db.execute(
+            'ALTER TABLE expense_logs '
+            "ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+          );
         }
       },
     );
@@ -143,6 +151,8 @@ class LocalDatabase {
   Future<int> addExpenseLog({
     required String rawText,
     String? screenshotPath,
+    DateTime? createdAt,
+    String source = 'manual',
   }) async {
     final db =
         await database;
@@ -155,10 +165,11 @@ class LocalDatabase {
         'screenshot_path':
             screenshotPath,
         'created_at':
-            DateTime.now()
+            (createdAt ?? DateTime.now())
                 .toIso8601String(),
         'sync_status':
             'pending',
+        'source': source,
       },
     );
   }
