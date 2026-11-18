@@ -1,6 +1,8 @@
-<p align="center"><img src="docs/images/icon.png" alt="Expense Tracker icon" width="112"></p>
+<p align="center"><img src="docs/images/icon.png" alt="Chillara icon" width="112"></p>
 
-<h1 align="center">Expense Tracker</h1>
+<h1 align="center">Chillara</h1>
+
+<p align="center"><i>chillara</i> (Malayalam) — small change. A private, offline-first expense tracker for everyday spends.</p>
 
 **Log an expense in two seconds, offline, in plain words — let a local AI on your laptop turn it into clean data.**
 
@@ -190,7 +192,7 @@ Giving your laptop a fixed IP in your router settings saves you from updating it
 
   *Example:* limit 300, it's Wednesday, you spent 200 on Monday and 250 on Tuesday → **450** available today.
 
-**Auto-log from notifications** — tap **Enable** on the card on the Expenses tab and allow notification access for *Expense Tracker*. New debit alerts appear in the log the next time you open the app and are parsed on the next sync.
+**Auto-log from notifications** — tap **Enable** on the card on the Expenses tab and allow notification access for *Chillara*. New debit alerts appear in the log the next time you open the app and are parsed on the next sync.
 
 ---
 

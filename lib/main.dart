@@ -20,7 +20,7 @@ class ExpenseApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Expense Tracker',
+      title: 'Chillara',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.green,
@@ -490,7 +490,7 @@ class _ExpenseHomePageState
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'Expense Tracker',
+          'Chillara',
           style: TextStyle(
             fontWeight: FontWeight.bold,
           ),
