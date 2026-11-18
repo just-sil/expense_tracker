@@ -116,7 +116,8 @@ class _SummaryScreenState
       ),
     );
 
-    controller.dispose();
+    // Not disposed here: the dialog's closing animation
+    // still renders the TextField. It is garbage-collected.
 
     if (result == null) return; // cancelled
 

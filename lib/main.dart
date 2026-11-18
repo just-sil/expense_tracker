@@ -277,6 +277,112 @@ class _ExpenseHomePageState
   }
 
   // --------------------------------------------------
+  // CHANGE LAPTOP ADDRESS (long-press Sync)
+  // --------------------------------------------------
+
+  Future<void> editServerAddress() async {
+    final current = await syncService.getLanUrl();
+
+    // Show just "ip" or "ip:port" for editing.
+    final uri = Uri.parse(current);
+    final initial = uri.port == SyncService.defaultPort
+        ? uri.host
+        : '${uri.host}:${uri.port}';
+
+    if (!mounted) return;
+
+    final controller =
+        TextEditingController(text: initial);
+
+    String? errorText;
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          void save() {
+            final url = SyncService.normalizeAddress(
+              controller.text,
+            );
+
+            if (url == null) {
+              setDialogState(() {
+                errorText =
+                    'Enter an IP like 192.168.0.198';
+              });
+              return;
+            }
+
+            Navigator.pop(context, url);
+          }
+
+          return AlertDialog(
+            title: const Text('Laptop address'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.url,
+              onSubmitted: (_) => save(),
+              decoration: InputDecoration(
+                labelText: 'Computer IP',
+                hintText: '192.168.0.198',
+                helperText:
+                    'Port ${SyncService.defaultPort} is '
+                    'used if you leave it out. USB sync '
+                    'is always tried first.',
+                helperMaxLines: 3,
+                errorText: errorText,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(
+                  context,
+                  SyncService.defaultLanUrl,
+                ),
+                child: const Text('Reset'),
+              ),
+              TextButton(
+                onPressed: () =>
+                    Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: save,
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    // Not disposed here: the dialog's closing animation
+    // still renders the TextField. It is garbage-collected.
+
+    if (result == null) return;
+
+    await syncService.setLanUrl(result);
+
+    final reachable =
+        await SyncService.isReachable(result);
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          reachable
+              ? 'Saved. Laptop found at $result'
+              : 'Saved $result, but the laptop is not '
+                  'answering there right now',
+        ),
+      ),
+    );
+  }
+
+  // --------------------------------------------------
   // DELETE EXPENSE
   // --------------------------------------------------
 
@@ -390,22 +496,26 @@ class _ExpenseHomePageState
           ),
         ),
         actions: [
-          IconButton(
-            tooltip: 'Sync with laptop',
-            onPressed:
-                syncing ? null : syncExpenses,
-            icon: syncing
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child:
-                        CircularProgressIndicator(
-                      strokeWidth: 2,
+          // Long-press opens the laptop address dialog.
+          // (No tooltip: it would also claim long-press.)
+          GestureDetector(
+            onLongPress: editServerAddress,
+            child: IconButton(
+              onPressed:
+                  syncing ? null : syncExpenses,
+              icon: syncing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child:
+                          CircularProgressIndicator(
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.sync,
                     ),
-                  )
-                : const Icon(
-                    Icons.sync,
-                  ),
+            ),
           ),
         ],
       ),
@@ -618,6 +728,8 @@ class _ExpenseHomePageState
             FilledButton(
               onPressed:
                   syncing ? null : syncExpenses,
+
+              onLongPress: editServerAddress,
 
               child: syncing
                   ? const SizedBox(

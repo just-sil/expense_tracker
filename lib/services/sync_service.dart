@@ -5,31 +5,85 @@ import 'package:http/http.dart' as http;
 import '../database/local_database.dart';
 
 class SyncService {
-  // Tried in order. The first is reachable over USB after
-  // running `adb reverse tcp:5000 tcp:5000` on the laptop;
-  // the second is the laptop's IP on the local Wi-Fi.
-  static const List<String> serverUrls = [
-    'http://127.0.0.1:5000',
-    'http://192.168.0.198:5000',
-  ];
+  // Reachable over USB after running
+  // `adb reverse tcp:5000 tcp:5000` on the laptop.
+  static const String usbUrl = 'http://127.0.0.1:5000';
 
+  // Used until an address is saved from the app
+  // (long-press the Sync button).
+  static const String defaultLanUrl =
+      'http://192.168.0.198:5000';
+
+  static const int defaultPort = 5000;
+
+  static const String _lanUrlKey = 'server_url';
+
+  /// The laptop's Wi-Fi address, as saved in settings.
+  Future<String> getLanUrl() async {
+    return await LocalDatabase.instance
+            .getSetting(_lanUrlKey) ??
+        defaultLanUrl;
+  }
+
+  Future<void> setLanUrl(String url) async {
+    await LocalDatabase.instance.setSetting(
+      _lanUrlKey,
+      url,
+    );
+  }
+
+  /// Turns "192.168.0.5", "192.168.0.5:8000" or
+  /// "http://192.168.0.5:5000/" into a base URL.
+  /// Returns null if the input isn't a usable address.
+  static String? normalizeAddress(String input) {
+    var text = input.trim();
+
+    if (text.isEmpty) return null;
+
+    if (!text.contains('://')) {
+      text = 'http://$text';
+    }
+
+    final uri = Uri.tryParse(text);
+
+    if (uri == null ||
+        uri.host.isEmpty ||
+        !(uri.scheme == 'http' ||
+            uri.scheme == 'https')) {
+      return null;
+    }
+
+    final port = uri.hasPort ? uri.port : defaultPort;
+
+    return '${uri.scheme}://${uri.host}:$port';
+  }
+
+  /// True if a backend answers at [url].
+  static Future<bool> isReachable(String url) async {
+    try {
+      final response = await http
+          .get(Uri.parse('$url/api/health'))
+          .timeout(const Duration(seconds: 2));
+
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Tries USB first, then the saved Wi-Fi address.
   Future<String> _findServer() async {
-    for (final url in serverUrls) {
-      try {
-        final response = await http
-            .get(Uri.parse('$url/api/health'))
-            .timeout(const Duration(seconds: 2));
+    final lanUrl = await getLanUrl();
 
-        if (response.statusCode == 200) {
-          return url;
-        }
-      } catch (_) {
-        // Try the next address.
+    for (final url in [usbUrl, lanUrl]) {
+      if (await isReachable(url)) {
+        return url;
       }
     }
 
     throw Exception(
-      'Laptop server not reachable over USB or Wi-Fi',
+      'Laptop not reachable over USB or at $lanUrl. '
+      'Long-press Sync to change the address.',
     );
   }
 
