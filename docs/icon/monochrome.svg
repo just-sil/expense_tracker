@@ -1,6 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 432 432">
-  <defs><mask id="m"><path d="M146,133 Q146,121 158,121 H274 Q286,121 286,133 V305 L276,315 L266,305 L256,315 L246,305 L236,315 L226,305 L216,315 L206,305 L196,315 L186,305 L176,315 L166,305 L156,315 L146,305 Z" fill="#fff"/>
-    <g stroke="#000"><path d="M181,152 H251 M181,176 H251 M181,152 H204 C234,152 234,202 204,202 H186 L238,248" fill="none" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/></g><g stroke="#000"><path d="M176,272 H256 M176,292 H232" fill="none" stroke-width="8" stroke-linecap="round"/></g></mask></defs>
+  <defs><mask id="m"><g transform="translate(216,216) scale(1.08) translate(-216,-216)">
+    <path d="M118,282 V302 A64,19 0 0 0 246,302 V282 Z" fill="#fff" stroke="#fff" stroke-width="3"/>
+  <ellipse cx="182" cy="282" rx="64" ry="19" fill="#fff" stroke="#fff" stroke-width="3"/>
+  <path d="M118,302 A64,19 0 0 0 246,302" fill="none" stroke="#000" stroke-width="4"/>
+  <path d="M118,260 V280 A64,19 0 0 0 246,280 V260 Z" fill="#fff" stroke="#fff" stroke-width="3"/>
+  <ellipse cx="182" cy="260" rx="64" ry="19" fill="#fff" stroke="#fff" stroke-width="3"/>
+  <path d="M118,280 A64,19 0 0 0 246,280" fill="none" stroke="#000" stroke-width="4"/>
+  <path d="M118,238 V258 A64,19 0 0 0 246,258 V238 Z" fill="#fff" stroke="#fff" stroke-width="3"/>
+  <ellipse cx="182" cy="238" rx="64" ry="19" fill="#fff" stroke="#fff" stroke-width="3"/>
+  <path d="M118,258 A64,19 0 0 0 246,258" fill="none" stroke="#000" stroke-width="4"/>
+    <circle cx="256" cy="202" r="84" fill="#000"/>
+    <circle cx="256" cy="202" r="74" fill="#fff"/>
+    <circle cx="256" cy="202" r="58" fill="none" stroke="#000" stroke-width="6"/>
+    <path d="M181,152 H251 M181,176 H251 M181,152 H204 C234,152 234,202 204,202 H186 L238,248" transform="translate(256,204) scale(0.72) translate(-216,-200)" fill="none" stroke="#000"
+          stroke-width="19" stroke-linecap="round" stroke-linejoin="round"/>
+  </g></mask></defs>
   <rect width="432" height="432" fill="#fff" mask="url(#m)"/>
-  <path d="M282,100 Q286,124 310,128 Q286,132 282,156 Q278,132 254,128 Q278,124 282,100 Z" fill="#fff"/>
 </svg>
