@@ -1,4 +1,6 @@
-# Expense Tracker
+<p align="center"><img src="docs/images/icon.png" alt="Expense Tracker icon" width="112"></p>
+
+<h1 align="center">Expense Tracker</h1>
 
 **Log an expense in two seconds, offline, in plain words — let a local AI on your laptop turn it into clean data.**
 
