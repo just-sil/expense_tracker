@@ -32,7 +32,7 @@ class LocalDatabase {
     return openDatabase(
       path,
 
-      version: 3,
+      version: 4,
 
       onCreate:
           (db, version) async {
@@ -50,6 +50,8 @@ class LocalDatabase {
             expense_date TEXT
           )
         ''');
+
+        await _createSettingsTable(db);
       },
 
       onUpgrade:
@@ -75,7 +77,62 @@ class LocalDatabase {
             'ADD COLUMN expense_date TEXT',
           );
         }
+
+        if (oldVersion < 4) {
+          await _createSettingsTable(db);
+        }
       },
+    );
+  }
+
+  Future<void> _createSettingsTable(
+    Database db,
+  ) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    ''');
+  }
+
+  // --------------------------------------------------
+  // SETTINGS
+  // --------------------------------------------------
+
+  Future<String?> getSetting(String key) async {
+    final db = await database;
+
+    final rows = await db.query(
+      'settings',
+      where: 'key = ?',
+      whereArgs: [key],
+    );
+
+    return rows.isEmpty
+        ? null
+        : rows.first['value'] as String?;
+  }
+
+  Future<void> setSetting(
+    String key,
+    String? value,
+  ) async {
+    final db = await database;
+
+    if (value == null) {
+      await db.delete(
+        'settings',
+        where: 'key = ?',
+        whereArgs: [key],
+      );
+      return;
+    }
+
+    await db.insert(
+      'settings',
+      {'key': key, 'value': value},
+      conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../database/local_database.dart';
 
 /// One expense reduced to what the summary needs.
 class _Entry {
@@ -38,6 +41,107 @@ enum _Period { daily, weekly }
 class _SummaryScreenState
     extends State<SummaryScreen> {
   _Period period = _Period.daily;
+
+  /// Daily spending limit; null when not set.
+  double? dailyLimit;
+
+  static const String _limitKey = 'daily_limit';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLimit();
+  }
+
+  Future<void> _loadLimit() async {
+    final value =
+        await LocalDatabase.instance.getSetting(_limitKey);
+
+    if (!mounted) return;
+
+    setState(() {
+      dailyLimit =
+          value == null ? null : double.tryParse(value);
+    });
+  }
+
+  Future<void> _editLimit() async {
+    final controller = TextEditingController(
+      text: dailyLimit == null ? '' : _money(dailyLimit!),
+    );
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Daily limit'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType:
+              const TextInputType.numberWithOptions(
+            decimal: true,
+          ),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(
+              RegExp(r'[0-9.]'),
+            ),
+          ],
+          decoration: const InputDecoration(
+            hintText: 'e.g. 300',
+            helperText:
+                'Unspent money rolls over to the next '
+                'day. Resets every Monday.',
+            helperMaxLines: 2,
+          ),
+        ),
+        actions: [
+          if (dailyLimit != null)
+            TextButton(
+              onPressed: () =>
+                  Navigator.pop(context, ''),
+              child: const Text('Remove'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              context,
+              controller.text.trim(),
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+
+    if (result == null) return; // cancelled
+
+    final parsed = double.tryParse(result);
+    final newLimit =
+        parsed != null && parsed > 0 ? parsed : null;
+
+    if (result.isNotEmpty && newLimit == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter an amount above 0'),
+        ),
+      );
+      return;
+    }
+
+    await LocalDatabase.instance.setSetting(
+      _limitKey,
+      newLimit?.toString(),
+    );
+
+    if (!mounted) return;
+    setState(() => dailyLimit = newLimit);
+  }
 
   static const int _dayCount = 7;
   static const int _weekCount = 8;
@@ -232,6 +336,10 @@ class _SummaryScreenState
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        _buildLimitCard(entries),
+
+        const SizedBox(height: 16),
+
         SegmentedButton<_Period>(
           segments: const [
             ButtonSegment(
@@ -280,6 +388,165 @@ class _SummaryScreenState
 
         _buildHistory(buckets),
       ],
+    );
+  }
+
+  // --------------------------------------------------
+  // DAILY LIMIT
+  // --------------------------------------------------
+
+  Widget _buildLimitCard(List<_Entry> entries) {
+    final theme = Theme.of(context);
+    final limit = dailyLimit;
+
+    if (limit == null) {
+      return Card(
+        child: ListTile(
+          leading: const Icon(Icons.savings_outlined),
+          title: const Text('Set a daily limit'),
+          subtitle: const Text(
+            'See how much you can spend each day',
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: _editLimit,
+        ),
+      );
+    }
+
+    final today = _dateOnly(DateTime.now());
+    final weekStart = _weekStart(today);
+
+    // Monday = 1 ... Sunday = 7
+    final daysSoFar = today.weekday;
+    final daysLeft = 8 - daysSoFar; // including today
+
+    double spentBeforeToday = 0;
+    double spentToday = 0;
+
+    for (final e in entries) {
+      if (e.day.isBefore(weekStart) ||
+          e.day.isAfter(today)) {
+        continue;
+      }
+
+      if (e.day == today) {
+        spentToday += e.amount;
+      } else {
+        spentBeforeToday += e.amount;
+      }
+    }
+
+    final spentWeek = spentBeforeToday + spentToday;
+    final weekBudget = limit * 7;
+
+    // Allowance for today, carrying over Mon..yesterday.
+    final canSpendToday = limit * daysSoFar - spentWeek;
+    final weekRemaining = weekBudget - spentWeek;
+
+    // Even split of what's left over the remaining days.
+    final perDayRest = (weekBudget - spentBeforeToday) /
+        daysLeft;
+
+    final over = canSpendToday < 0;
+    final hasEstimates = entries.any(
+      (e) =>
+          e.estimated &&
+          !e.day.isBefore(weekStart) &&
+          !e.day.isAfter(today),
+    );
+
+    final colors = theme.colorScheme;
+
+    return Card(
+      color: over
+          ? colors.errorContainer
+          : colors.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    over
+                        ? 'Over today\'s allowance by'
+                        : 'You can spend today',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Edit daily limit',
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: _editLimit,
+                ),
+              ],
+            ),
+            Text(
+              _money(canSpendToday.abs()),
+              style: theme.textTheme.displaySmall
+                  ?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Limit ${_money(limit)}/day · '
+              'spent ${_money(spentToday)} today',
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'This week: ${_money(spentWeek)} '
+                    'of ${_money(weekBudget)}',
+                  ),
+                ),
+                Text(
+                  weekRemaining >= 0
+                      ? '${_money(weekRemaining)} left'
+                      : '${_money(-weekRemaining)} over',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: (spentWeek / weekBudget)
+                    .clamp(0.0, 1.0),
+                minHeight: 8,
+                color: over ? colors.error : null,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              daysLeft == 1
+                  ? 'Last day of the week · resets tonight'
+                  : perDayRest >= 0
+                      ? 'About ${_money(perDayRest)}/day '
+                          'for the $daysLeft days left '
+                          '(incl. today)'
+                      : 'Weekly budget already used up',
+              style: theme.textTheme.bodySmall,
+            ),
+            if (hasEstimates) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Includes unsynced amounts read from '
+                'your notes.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
