@@ -20,7 +20,7 @@ Type `24 tea`, `petrol 60` or `120 mandi yesterday` on your phone. The app saves
   </a>
 </p>
 
-<p align="center"><b><a href="docs/video/chillara-tour.mp4">▶ Watch the full 78-second tour</a></b></p>
+<p align="center"><b><a href="docs/video/chillara-tour.mp4">▶ Watch the full 81-second tour (with voice-over)</a></b></p>
 
 The tour walks through the mobile app in five steps:
 
@@ -30,7 +30,7 @@ The tour walks through the mobile app in five steps:
 4. **See your spending** — daily and weekly totals, categories and history
 5. **Set a daily limit** — see how much you can spend today
 
-*Recorded with sample data.*
+*Recorded with sample data. Indian English narration generated with Gemini text-to-speech.*
 
 ---
 
