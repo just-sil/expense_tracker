@@ -56,3 +56,7 @@ app.*.map.json
 *.sqlite3
 *.sql.gz
 *.dump
+
+# Built apps (published as GitHub Release assets, not committed)
+*.apk
+*.aab

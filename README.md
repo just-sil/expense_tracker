@@ -175,6 +175,10 @@ Neither starts automatically at boot. If Ollama's installer enabled it as a boot
 
 ### 3. Install the app (phone)
 
+**Option A — download the APK:** get **[`chillara-arm64.apk`](https://github.com/just-sil/expense_tracker/releases/latest/download/chillara-arm64.apk)** from the [latest release](https://github.com/just-sil/expense_tracker/releases/latest) (18 MB, for 64-bit ARM phones — almost every Android phone from the last several years). Open it on your phone and allow *Install unknown apps* when Android asks.
+
+**Option B — build from source:**
+
 ```bash
 cd expense_tracker
 flutter pub get
