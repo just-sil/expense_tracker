@@ -30,6 +30,38 @@ CORS(app)
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
+# --------------------------------------------------
+# Ollama
+# --------------------------------------------------
+
+# A small model is plenty for pulling four fields out of a
+# short message, and qwen3:4b fits in a 4 GB GPU. Override
+# with OLLAMA_MODEL in .env to try another one.
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:4b")
+
+# Constrains the reply to exactly this JSON shape, so small
+# models can't wrap it in prose or drop a field.
+EXPENSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "amount": {"type": "number"},
+        "category": {
+            "type": "string",
+            "enum": [
+                "Food", "Transport", "Shopping", "Bills",
+                "Entertainment", "Education", "Health", "Other",
+            ],
+        },
+        "description": {"type": "string"},
+        "date": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+        },
+    },
+    "required": ["amount", "category", "description", "date"],
+}
+
+
 def get_db():
     return psycopg.connect(DATABASE_URL)
 
@@ -209,9 +241,22 @@ Rules:
         "http://127.0.0.1:11434/api/chat",
 
         json={
-            "model": "qwen3:8b",
+            "model": OLLAMA_MODEL,
             "stream": False,
             "think": False,
+            "format": EXPENSE_SCHEMA,
+            # Stay loaded between syncs instead of reloading
+            # after Ollama's default 5 idle minutes.
+            "keep_alive": "30m",
+            "options": {
+                "temperature": 0,
+                # The JSON reply is ~50 tokens; the cap stops a
+                # runaway generation from hanging the sync.
+                "num_predict": 200,
+                # Prompts are short. A smaller context keeps the
+                # whole model on a 4 GB GPU.
+                "num_ctx": 2048,
+            },
 
             "messages": [
                 {
