@@ -2,6 +2,7 @@ package com.example.expense_tracker
 
 import android.app.Notification
 import android.content.Context
+import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import org.json.JSONArray
@@ -18,6 +19,17 @@ import org.json.JSONObject
  * is closed.
  */
 class ExpenseNotificationListener : NotificationListenerService() {
+
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        // After a reboot or app update the system reconnects us and apps
+        // re-post their still-unread notifications. Open a short window in
+        // which an exact repeat of any recently logged text is treated as
+        // a repost rather than a new payment.
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putLong(KEY_CONNECTED_AT, System.currentTimeMillis())
+            .apply()
+    }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
@@ -39,7 +51,14 @@ class ExpenseNotificationListener : NotificationListenerService() {
 
         if (!looksLikeExpense(text)) return
 
-        enqueue(applicationContext, sbn.packageName, appLabel(sbn.packageName), text, sbn.postTime)
+        // `when` is the app's own timestamp for the event (for SMS, when the
+        // message arrived) and survives re-posts, unlike postTime.
+        val now = System.currentTimeMillis()
+        val eventTime = notification.`when`
+            .takeIf { it in 1..(now + 60_000) }
+            ?: sbn.postTime
+
+        enqueue(applicationContext, sbn.packageName, appLabel(sbn.packageName), text, eventTime)
     }
 
     private fun appLabel(pkg: String): String = try {
@@ -53,7 +72,17 @@ class ExpenseNotificationListener : NotificationListenerService() {
         const val PREFS = "notification_expenses"
         const val KEY_QUEUE = "queue"
         const val KEY_RECENT = "recent"
-        private const val DEDUPE_WINDOW_MS = 10 * 60 * 1000L
+        const val KEY_SEEN = "seen"
+        const val KEY_SEEN_TEXT = "seen_text"
+        const val KEY_CONNECTED_AT = "connected_at"
+        private const val MINUTE = 60 * 1000L
+        private const val DAY = 24 * 60 * MINUTE
+        private const val DEDUPE_WINDOW_MS = 10 * MINUTE
+        private const val SEEN_RETENTION_MS = 30 * DAY
+        private const val TEXT_RETENTION_MS = 7 * DAY
+        private const val REPOST_WINDOW_MS = 5 * MINUTE
+        // Anything this old is a resurfaced notification, not a new payment.
+        private const val MAX_EVENT_AGE_MS = 1 * DAY
 
         private val amountPattern = Regex(
             """(₹|\bRs\.?|\bINR)\s?\d[\d,]*(\.\d+)?|\d[\d,]*(\.\d+)?\s?(₹|\bRs\b|\bINR\b)""",
@@ -109,22 +138,37 @@ class ExpenseNotificationListener : NotificationListenerService() {
             pkg: String,
             label: String,
             text: String,
-            postTime: Long,
+            eventTime: Long,
         ) {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-
-            // The same alert often shows up twice (bank app + SMS) or gets
-            // re-posted when updated; drop repeats of the same amount line.
-            val key = normalize(text)
             val now = System.currentTimeMillis()
-            val recent = JSONObject(prefs.getString(KEY_RECENT, "{}") ?: "{}")
-            val pruned = JSONObject()
-            recent.keys().forEach { k ->
-                val t = recent.optLong(k)
-                if (now - t < DEDUPE_WINDOW_MS) pruned.put(k, t)
-            }
-            if (pruned.has(key)) return
-            pruned.put(key, now)
+
+            if (now - eventTime > MAX_EVENT_AGE_MS) return
+
+            // 1. Exact identity: same app, same text, same event time.
+            //    Catches re-posts after reboot, app updates and edits.
+            val seen = pruned(prefs, KEY_SEEN, now, SEEN_RETENTION_MS)
+            val identity = "$pkg|$eventTime|${text.hashCode()}"
+            if (seen.has(identity)) return
+
+            // 2. Right after (re)connecting, some apps re-post with a fresh
+            //    timestamp. An exact text repeat in that window is a repost.
+            val seenText = pruned(prefs, KEY_SEEN_TEXT, now, TEXT_RETENTION_MS)
+            val textKey = "$pkg|${text.hashCode()}"
+            val connectedAt = prefs.getLong(KEY_CONNECTED_AT, 0L)
+            val justConnected = now - connectedAt < REPOST_WINDOW_MS
+            // A notification from before this boot can't be new either.
+            val bootTime = now - SystemClock.elapsedRealtime()
+            if (seenText.has(textKey) && (justConnected || eventTime < bootTime)) return
+
+            // 3. Same alert from two sources (bank app + SMS) within minutes.
+            val recent = pruned(prefs, KEY_RECENT, now, DEDUPE_WINDOW_MS)
+            val fuzzy = normalize(text)
+            if (recent.has(fuzzy)) return
+
+            seen.put(identity, now)
+            seenText.put(textKey, now)
+            recent.put(fuzzy, now)
 
             val queue = JSONArray(prefs.getString(KEY_QUEUE, "[]") ?: "[]")
             queue.put(
@@ -132,13 +176,35 @@ class ExpenseNotificationListener : NotificationListenerService() {
                     .put("package", pkg)
                     .put("app", label)
                     .put("text", text)
-                    .put("posted_at", postTime),
+                    .put("posted_at", eventTime),
             )
 
             prefs.edit()
                 .putString(KEY_QUEUE, queue.toString())
-                .putString(KEY_RECENT, pruned.toString())
+                .putString(KEY_SEEN, seen.toString())
+                .putString(KEY_SEEN_TEXT, seenText.toString())
+                .putString(KEY_RECENT, recent.toString())
                 .commit()
+        }
+
+        /** Loads a key -> timestamp map, dropping entries older than [maxAge]. */
+        private fun pruned(
+            prefs: android.content.SharedPreferences,
+            key: String,
+            now: Long,
+            maxAge: Long,
+        ): JSONObject {
+            val stored = try {
+                JSONObject(prefs.getString(key, "{}") ?: "{}")
+            } catch (_: Exception) {
+                JSONObject()
+            }
+            val result = JSONObject()
+            stored.keys().forEach { k ->
+                val t = stored.optLong(k)
+                if (now - t < maxAge) result.put(k, t)
+            }
+            return result
         }
 
         @Synchronized
