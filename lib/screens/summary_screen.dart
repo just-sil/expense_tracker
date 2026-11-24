@@ -38,19 +38,45 @@ class SummaryScreen extends StatefulWidget {
 
 enum _Period { daily, weekly }
 
+/// Which days the daily history lists.
+enum _DayRange { last7, thisWeek }
+
 class _SummaryScreenState
     extends State<SummaryScreen> {
   _Period period = _Period.daily;
+
+  _DayRange dayRange = _DayRange.last7;
 
   /// Daily spending limit; null when not set.
   double? dailyLimit;
 
   static const String _limitKey = 'daily_limit';
+  static const String _dayRangeKey = 'day_range';
 
   @override
   void initState() {
     super.initState();
     _loadLimit();
+    _loadDayRange();
+  }
+
+  Future<void> _loadDayRange() async {
+    final value =
+        await LocalDatabase.instance.getSetting(_dayRangeKey);
+
+    if (!mounted) return;
+
+    setState(() {
+      dayRange = _DayRange.values.firstWhere(
+        (r) => r.name == value,
+        orElse: () => _DayRange.last7,
+      );
+    });
+  }
+
+  void _setDayRange(_DayRange range) {
+    setState(() => dayRange = range);
+    LocalDatabase.instance.setSetting(_dayRangeKey, range.name);
   }
 
   Future<void> _loadLimit() async {
@@ -222,13 +248,20 @@ class _SummaryScreenState
     List<_Entry> entries,
   ) {
     final now = DateTime.now();
+    final today = _dateOnly(now);
 
     final starts = period == _Period.daily
-        ? List.generate(
-            _dayCount,
-            (i) => _dateOnly(now)
-                .subtract(Duration(days: i)),
-          )
+        ? (dayRange == _DayRange.thisWeek
+            // This week from Monday, up to today.
+            ? List.generate(
+                7,
+                (i) => _weekStart(now)
+                    .add(Duration(days: i)),
+              ).where((d) => !d.isAfter(today)).toList()
+            : List.generate(
+                _dayCount,
+                (i) => today.subtract(Duration(days: i)),
+              ))
         : List.generate(
             _weekCount,
             (i) => _weekStart(now)
@@ -295,8 +328,12 @@ class _SummaryScreenState
 
   String _bucketLabel(DateTime start, int index) {
     if (period == _Period.daily) {
-      if (index == 0) return 'Today';
-      if (index == 1) return 'Yesterday';
+      final today = _dateOnly(DateTime.now());
+      if (start == today) return 'Today';
+      if (start ==
+          today.subtract(const Duration(days: 1))) {
+        return 'Yesterday';
+      }
       return '${_weekdays[start.weekday - 1]}, '
           '${_shortDate(start)}';
     }
@@ -375,14 +412,44 @@ class _SummaryScreenState
 
         const SizedBox(height: 24),
 
-        Text(
-          period == _Period.daily
-              ? 'Last $_dayCount days'
-              : 'Last $_weekCount weeks',
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                period == _Period.weekly
+                    ? 'Last $_weekCount weeks'
+                    : dayRange == _DayRange.thisWeek
+                        ? 'Monday to Sunday'
+                        : 'Last $_dayCount days',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            if (period == _Period.daily)
+              SegmentedButton<_DayRange>(
+                showSelectedIcon: false,
+                style: const ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize:
+                      MaterialTapTargetSize.shrinkWrap,
+                ),
+                segments: const [
+                  ButtonSegment(
+                    value: _DayRange.last7,
+                    label: Text('7 days'),
+                  ),
+                  ButtonSegment(
+                    value: _DayRange.thisWeek,
+                    label: Text('Mon–Sun'),
+                  ),
+                ],
+                selected: {dayRange},
+                onSelectionChanged: (s) =>
+                    _setDayRange(s.first),
+              ),
+          ],
         ),
 
         const SizedBox(height: 12),
