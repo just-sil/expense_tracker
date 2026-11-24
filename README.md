@@ -6,7 +6,7 @@
 
 **Log an expense in two seconds, offline, in plain words — let a local AI on your laptop turn it into clean data.**
 
-Type `24 tea`, `petrol 60` or `120 mandi yesterday` on your phone. The app saves it instantly to an on-device database, even with no network. When you sync, a self-hosted LLM (Ollama + `qwen3:8b`) on your laptop extracts the amount, category and date, and stores it in PostgreSQL. Nothing goes to the cloud.
+Type `24 tea`, `petrol 60` or `120 mandi yesterday` on your phone. The app saves it instantly to an on-device database, even with no network. When you sync, a self-hosted LLM (Ollama + `qwen3:4b`) on your laptop extracts the amount, category and date, and stores it in PostgreSQL. Nothing goes to the cloud.
 
 <p align="center">
   <img src="docs/images/expenses-tab.png" alt="Expenses tab: add an expense in plain text, attach a screenshot, sync with the laptop" width="320">
@@ -40,7 +40,7 @@ The tour walks through the mobile app in five steps:
 |---|---|
 | ✍️ **Plain-language entry** | Write expenses the way you think: `24 tea`, `Tea24`, `spent 150 on lunch yesterday`. No forms, no dropdowns. |
 | 📴 **Offline-first** | Every entry is saved to SQLite on the phone first and synced later. You never lose an entry because the laptop is off. |
-| 🤖 **Local AI parsing** | The laptop runs `qwen3:8b` through Ollama to extract **amount**, **category** and **date**, resolving relative dates like "yesterday". |
+| 🤖 **Local AI parsing** | The laptop runs `qwen3:4b` through Ollama to extract **amount**, **category** and **date**, resolving relative dates like "yesterday". |
 | 🔌 **USB or Wi-Fi sync** | Sync goes over USB (`adb reverse`) when the phone is plugged in and falls back to Wi-Fi automatically. |
 | 📊 **Daily & weekly summary** | Totals for today, this week, the last 7 days and the last 8 weeks, with a category breakdown. Computed on the phone — no AI or network needed. |
 | 💰 **Daily limit with rollover** | Set a daily budget and see **how much you can spend today**. Unspent money carries forward through the week; overspending reduces later days. Resets every Monday. |
@@ -56,7 +56,7 @@ The tour walks through the mobile app in five steps:
 
 1. **Capture** — you type an expense (or one arrives from a payment notification). It's written to the phone's SQLite database with status `pending`.
 2. **Sync** — tapping **Sync** finds the laptop (USB first, then the saved Wi-Fi address) and sends each pending entry's raw text and timestamp to `POST /api/sync`.
-3. **Parse** — Flask asks `qwen3:8b` to return JSON with `amount`, `category`, `description` and `date`. The output is validated; if the model misses the amount, the server falls back to the first number in the text.
+3. **Parse** — Flask asks `qwen3:4b` to return JSON with `amount`, `category`, `description` and `date`. The output is validated; if the model misses the amount, the server falls back to the first number in the text.
 4. **Store** — the parsed expense is saved in PostgreSQL and returned to the phone, which keeps the amount, category and date locally and marks the entry `synced`.
 5. **Summarise** — the Summary tab reads only the local database, so totals and your daily allowance work anywhere. Unsynced entries are estimated from the first number in their text until they sync.
 
@@ -71,7 +71,7 @@ Failed entries are retried on every sync. If the laptop can't be reached at all,
 | Mobile app | Flutter (Dart), Material 3, `sqflite`, `http`, `image_picker` |
 | Android native | Kotlin `NotificationListenerService` + `MethodChannel` |
 | Backend | Python, Flask, `flask-cors`, `psycopg` 3 |
-| AI | [Ollama](https://ollama.com) running `qwen3:8b` locally |
+| AI | [Ollama](https://ollama.com) running `qwen3:4b` locally — fits a 4 GB GPU |
 | Database | SQLite (phone), PostgreSQL (laptop) |
 
 ---
@@ -131,7 +131,7 @@ cp .env.example .env          # then edit DATABASE_URL
 psql "$(grep DATABASE_URL .env | cut -d= -f2-)" -f schema.sql
 
 # AI model
-ollama pull qwen3:8b
+ollama pull qwen3:4b
 ```
 
 Run it once in the foreground to check everything works:
@@ -257,7 +257,7 @@ Errors return `{"success": false, "error": "..."}` with `400` (bad input), `503`
 |---|---|---|
 | PostgreSQL connection | `backend/.env` → `DATABASE_URL` | — |
 | Flask debug mode | env `FLASK_DEBUG=1` | off |
-| AI model | `backend/app.py` → `process_with_ollama` | `qwen3:8b` |
+| AI model | `backend/.env` → `OLLAMA_MODEL` | `qwen3:4b` |
 | Laptop Wi-Fi address | in the app: long-press **Sync** | `192.168.0.198:5000` |
 | Daily limit | in the app: Summary tab | not set |
 
