@@ -39,7 +39,7 @@ class SummaryScreen extends StatefulWidget {
 enum _Period { daily, weekly }
 
 /// Which days the daily history lists.
-enum _DayRange { last7, thisWeek }
+enum _DayRange { last7, thisWeek, weekdays }
 
 class _SummaryScreenState
     extends State<SummaryScreen> {
@@ -258,7 +258,14 @@ class _SummaryScreenState
                 (i) => _weekStart(now)
                     .add(Duration(days: i)),
               ).where((d) => !d.isAfter(today)).toList()
-            : List.generate(
+            : dayRange == _DayRange.weekdays
+                // This week Monday to Friday, up to today.
+                ? List.generate(
+                    5,
+                    (i) => _weekStart(now)
+                        .add(Duration(days: i)),
+                  ).where((d) => !d.isAfter(today)).toList()
+                : List.generate(
                 _dayCount,
                 (i) => today.subtract(Duration(days: i)),
               ))
@@ -420,7 +427,9 @@ class _SummaryScreenState
                     ? 'Last $_weekCount weeks'
                     : dayRange == _DayRange.thisWeek
                         ? 'Monday to Sunday'
-                        : 'Last $_dayCount days',
+                        : dayRange == _DayRange.weekdays
+                            ? 'Monday to Friday'
+                            : 'Last $_dayCount days',
                 style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -443,6 +452,10 @@ class _SummaryScreenState
                   ButtonSegment(
                     value: _DayRange.thisWeek,
                     label: Text('Mon–Sun'),
+                  ),
+                  ButtonSegment(
+                    value: _DayRange.weekdays,
+                    label: Text('Mon–Fri'),
                   ),
                 ],
                 selected: {dayRange},
@@ -507,13 +520,16 @@ class _SummaryScreenState
     final spentWeek = spentBeforeToday + spentToday;
     final weekBudget = limit * 7;
 
-    // Allowance for today, carrying over Mon..yesterday.
-    final canSpendToday = limit * daysSoFar - spentWeek;
     final weekRemaining = weekBudget - spentWeek;
 
-    // Even split of what's left over the remaining days.
+    // Even split of what's left (as of this morning) over
+    // the remaining days, including today.
     final perDayRest = (weekBudget - spentBeforeToday) /
         daysLeft;
+
+    // Today's allowance is that average minus what's
+    // already been spent today.
+    final canSpendToday = perDayRest - spentToday;
 
     final over = canSpendToday < 0;
     final hasEstimates = entries.any(
