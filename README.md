@@ -9,7 +9,8 @@
 Type `24 tea`, `petrol 60` or `120 mandi yesterday` on your phone. The app saves it instantly to an on-device database, even with no network. When you sync, a self-hosted LLM (Ollama + `qwen3:4b`) on your laptop extracts the amount, category and date, and stores it in PostgreSQL. Nothing goes to the cloud.
 
 <p align="center">
-  <img src="docs/images/expenses-tab.png" alt="Expenses tab: add an expense in plain text, attach a screenshot, sync with the laptop" width="320">
+  <img src="docs/images/expenses-tab.png" alt="Expenses tab: a one-line entry box, quick-add chips, and expenses grouped by day with amounts and categories" width="300">
+  <img src="docs/images/summary-tab.png" alt="Summary tab: how much you can spend today, this week's budget, and daily history" width="300">
 </p>
 
 ## Video tour
@@ -38,14 +39,17 @@ The tour walks through the mobile app in five steps:
 
 | | |
 |---|---|
-| ✍️ **Plain-language entry** | Write expenses the way you think: `24 tea`, `Tea24`, `spent 150 on lunch yesterday`. No forms, no dropdowns. |
+| ✍️ **Plain-language entry** | Write expenses the way you think: `24 tea`, `Tea24`, `spent 150 on lunch yesterday`. No forms, no dropdowns. A live preview shows the amount and warns if you forgot one; frequent entries become one-tap chips. |
+| 🗂️ **Clear expense list** | Grouped by day with daily totals, each entry showing its amount, category and time. Tap for details, swipe to delete (with Undo), search by name, note or category. |
 | 📴 **Offline-first** | Every entry is saved to SQLite on the phone first and synced later. You never lose an entry because the laptop is off. |
 | 🤖 **Local AI parsing** | The laptop runs `qwen3:4b` through Ollama to extract **amount**, **category** and **date**, resolving relative dates like "yesterday". |
 | 🔌 **USB or Wi-Fi sync** | Sync goes over USB (`adb reverse`) when the phone is plugged in and falls back to Wi-Fi automatically. |
-| 📊 **Daily & weekly summary** | Totals for today, this week, the last 7 days and the last 8 weeks, with a category breakdown. Computed on the phone — no AI or network needed. |
+| 📊 **Daily, weekly & monthly summary** | Totals for today, this week and this month, with a category breakdown and history. Tap any day, week or category to see its expenses. Computed on the phone — no AI or network needed. |
 | 💰 **Daily limit with rollover** | Set a daily budget and see **how much you can spend today**. Unspent money carries forward through the week; overspending reduces later days. Resets every Monday. |
 | 🔔 **Auto-log from notifications** | Optionally reads payment alerts from bank SMS and UPI apps and adds them as expenses (Android). OTPs, credits, refunds and offers are ignored. |
 | 🖼️ **Screenshot attachments** | Attach a receipt or payment screenshot to an entry and view it later. |
+| 🔄 **Hands-off sync** | Syncs quietly when you open the app or save an entry and the laptop is reachable; pull down to sync any time. Laptop address, connection check and daily limit live in **Settings**. |
+| 🌙 **Dark mode** | Follows your phone's light or dark theme. |
 | 🔒 **Private by design** | Your data stays on your phone and your laptop. No accounts, no cloud services. |
 
 ---
@@ -188,7 +192,7 @@ flutter run            # with the phone connected over USB
 ### 4. Point the app at your laptop
 
 - **USB:** run `./sync_usb.sh` after plugging the phone in (`start_ai.sh` does this for you). The app reaches the laptop at `127.0.0.1:5000`.
-- **Wi-Fi:** find your laptop's IP with `hostname -I`, then **long-press the Sync button** in the app and enter it. Port `5000` is used if you leave it out. The app checks the address and tells you whether the laptop answered.
+- **Wi-Fi:** find your laptop's IP with `hostname -I`, then open **Settings** (⚙) → **Laptop address** in the app and enter it. Port `5000` is used if you leave it out. The app checks the address and tells you whether the laptop answered.
 
 Giving your laptop a fixed IP in your router settings saves you from updating it later.
 
@@ -205,7 +209,7 @@ Giving your laptop a fixed IP in your router settings saves you from updating it
 | `120 mandi yesterday` | 120 · Food · Mandi · yesterday |
 | `spent 150 on lunch` | 150 · Food · Lunch · today |
 
-**Sync** — tap **Sync** (or the ↻ icon). Long-press either one to change the laptop address.
+**Sync** — happens automatically when the laptop is reachable. To sync now, tap the ↻ icon or pull down the list. The badge shows how many entries are waiting.
 
 **Summary tab**
 - **Daily / Weekly** toggle for the current period's total, average, category breakdown and history.
@@ -258,7 +262,7 @@ Errors return `{"success": false, "error": "..."}` with `400` (bad input), `503`
 | PostgreSQL connection | `backend/.env` → `DATABASE_URL` | — |
 | Flask debug mode | env `FLASK_DEBUG=1` | off |
 | AI model | `backend/.env` → `OLLAMA_MODEL` | `qwen3:4b` |
-| Laptop Wi-Fi address | in the app: long-press **Sync** | `192.168.0.198:5000` |
+| Laptop Wi-Fi address | in the app: **Settings** → **Laptop address** | `192.168.0.198:5000` |
 | Daily limit | in the app: Summary tab | not set |
 
 > **Security note:** the backend has no authentication and listens on all interfaces so the phone can reach it over Wi-Fi. Run it only on a trusted home network, and keep `FLASK_DEBUG` off.
@@ -269,7 +273,7 @@ Errors return `{"success": false, "error": "..."}` with `400` (bad input), `503`
 
 | Problem | Fix |
 |---|---|
-| Sync says *"Laptop not reachable"* | Run `./start_ai.sh`. Over USB, run `./sync_usb.sh` again after re-plugging. Over Wi-Fi, check the IP with `hostname -I` and long-press **Sync** to update it. |
+| Sync says *"Laptop not reachable"* | Run `./start_ai.sh`. Over USB, run `./sync_usb.sh` again after re-plugging. Over Wi-Fi, check the IP with `hostname -I` and update it in **Settings** → **Laptop address** (use **Check connection** to test). |
 | Phone shows as `unauthorized` in `adb devices` | Unlock the phone and accept the *Allow USB debugging?* prompt. If it never appears, revoke USB debugging authorizations in Developer options and reconnect. |
 | Entries stay `failed` | See the reason with `journalctl --user -u expense-backend -n 50`. Failed entries are retried automatically on the next sync. |
 | Wrong amount or category | The AI occasionally misreads unusual phrasing. Putting the number next to the item (`tea 24`, `24 tea`) is the most reliable. |

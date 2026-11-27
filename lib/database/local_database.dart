@@ -32,7 +32,7 @@ class LocalDatabase {
     return openDatabase(
       path,
 
-      version: 5,
+      version: 6,
 
       onCreate:
           (db, version) async {
@@ -48,7 +48,8 @@ class LocalDatabase {
             amount REAL,
             category TEXT,
             expense_date TEXT,
-            source TEXT NOT NULL DEFAULT 'manual'
+            source TEXT NOT NULL DEFAULT 'manual',
+            description TEXT
           )
         ''');
 
@@ -87,6 +88,13 @@ class LocalDatabase {
           await db.execute(
             'ALTER TABLE expense_logs '
             "ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+          );
+        }
+
+        if (oldVersion < 6) {
+          await db.execute(
+            'ALTER TABLE expense_logs '
+            'ADD COLUMN description TEXT',
           );
         }
       },
@@ -226,6 +234,7 @@ class LocalDatabase {
     double? amount,
     String? category,
     String? expenseDate,
+    String? description,
   }) async {
     final db =
         await database;
@@ -246,6 +255,8 @@ class LocalDatabase {
             category,
         'expense_date':
             expenseDate,
+        'description':
+            description,
       },
 
       where:
@@ -308,10 +319,28 @@ class LocalDatabase {
         'amount': null,
         'category': null,
         'expense_date': null,
+        'description': null,
         'error': null,
       },
       where: 'id = ?',
       whereArgs: [id],
+    );
+  }
+
+  // --------------------------------------------------
+  // RESTORE (undo delete)
+  // --------------------------------------------------
+
+  /// Puts back a row exactly as it was, same id included.
+  Future<void> restoreExpense(
+    Map<String, dynamic> row,
+  ) async {
+    final db = await database;
+
+    await db.insert(
+      'expense_logs',
+      row,
+      conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 

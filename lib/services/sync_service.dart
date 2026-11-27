@@ -4,6 +4,28 @@ import 'package:http/http.dart' as http;
 
 import '../database/local_database.dart';
 
+/// Thrown when neither USB nor the saved Wi-Fi address
+/// answers. Nothing was changed.
+class LaptopNotFoundException implements Exception {
+  final String lanUrl;
+
+  LaptopNotFoundException(this.lanUrl);
+
+  @override
+  String toString() =>
+      'Laptop not reachable over USB or at $lanUrl.';
+}
+
+/// Outcome of one sync run.
+class SyncResult {
+  final int synced;
+  final int failed;
+
+  const SyncResult({this.synced = 0, this.failed = 0});
+
+  bool get nothingToDo => synced == 0 && failed == 0;
+}
+
 class SyncService {
   // Reachable over USB after running
   // `adb reverse tcp:5000 tcp:5000` on the laptop.
@@ -81,32 +103,50 @@ class SyncService {
       }
     }
 
-    throw Exception(
-      'Laptop not reachable over USB or at $lanUrl. '
-      'Long-press Sync to change the address.',
-    );
+    throw LaptopNotFoundException(lanUrl);
   }
 
-  Future<void> syncPendingExpenses() async {
+  /// Which way the laptop answers right now: 'USB',
+  /// 'Wi-Fi', or null when it doesn't.
+  Future<String?> connectionType() async {
+    if (await isReachable(usbUrl)) return 'USB';
+    if (await isReachable(await getLanUrl())) return 'Wi-Fi';
+    return null;
+  }
+
+  /// Sends every pending/failed entry to the laptop.
+  /// [onProgress] gets (done, total) before each entry.
+  /// Throws [LaptopNotFoundException] before touching any
+  /// entry, so nothing is marked failed just because the
+  /// laptop is offline.
+  Future<SyncResult> syncPendingExpenses({
+    void Function(int done, int total)? onProgress,
+  }) async {
     final pending =
         await LocalDatabase.instance.getPendingLogs();
 
-    if (pending.isEmpty) return;
+    if (pending.isEmpty) return const SyncResult();
 
-    // Fails before touching any entry, so nothing is
-    // marked failed just because the laptop is offline.
     final serverUrl = await _findServer();
 
+    var synced = 0;
+    var failed = 0;
+
     for (final expense in pending) {
+      onProgress?.call(synced + failed, pending.length);
       try {
         await _syncExpense(serverUrl, expense);
+        synced++;
       } catch (e) {
+        failed++;
         await LocalDatabase.instance.markAsFailed(
           expense['id'] as int,
           e.toString(),
         );
       }
     }
+
+    return SyncResult(synced: synced, failed: failed);
   }
 
   Future<void> _syncExpense(
@@ -137,6 +177,10 @@ class SyncService {
         if (expense['server_id'] != null)
           'server_id': expense['server_id'],
       }),
+    ).timeout(
+      // Parsing takes seconds; this only stops a hung
+      // laptop from leaving sync spinning forever.
+      const Duration(seconds: 120),
     );
 
     if (response.statusCode != 201) {
@@ -181,6 +225,8 @@ class SyncService {
           parsed?['category'] as String?,
       expenseDate:
           parsed?['date']?.toString(),
+      description:
+          parsed?['description'] as String?,
     );
   }
 }
